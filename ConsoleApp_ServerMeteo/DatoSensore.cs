@@ -7,6 +7,14 @@ using System.Threading.Tasks;
 
 namespace ConsoleApp_ServerMeteo
 {
+    /*
+     * Studenti: Andrea Maria Castronovo e Francesco Caravita
+     * Classe: 5I
+     * Gruppo: 3
+     * Data: 21/02/2024
+     * Descrizione: Codice server per progetto Stazione meteo
+    */
+
     internal class DatoSensore
     {
         public int IDSensore { get; set; }

@@ -22,31 +22,57 @@ namespace ConsoleApp_ServerMeteo
 {
     internal class Program
     {
+        static void Masin(string[] args)
+        {
+            MySqlConnection conn;
+
+            Dictionary<string, string> databaseCredentials = new Dictionary<string, string>
+            {
+                {"Server","localhost" },
+                {"Database","Meteo_5I_06"},
+                {"Uid","root"},
+                {"Pwd","burbero2023"}
+            };
+
+            string connectionString = $"Server={databaseCredentials["Server"]};Database={databaseCredentials["Database"]};Uid={databaseCredentials["Uid"]};Pwd={databaseCredentials["Pwd"]};";
+            
+            conn = new MySqlConnection(); // Serve per gestire la CONNESSIONE con il DB
+            conn.ConnectionString = connectionString;
+            conn.Open();
+
+            MySqlCommand cmd = new MySqlCommand(); // Serve per eseguire dei comandi SQL
+            cmd.Connection = conn;
+            cmd.CommandText = "SELECT * FROM Sensori;";
+        }
         static void Main(string[] args)
         {
 
-            const string QUERY_COUNT = "SELECT COUNT(*) FROM sensoriinstallati WHERE idSensoriInstallati={0}";
-            const string QUERY_CAM =
-                "SELECT COUNT(*) FROM meteodb.sensori, meteodb.sensoriinstallati.idCodiceSensore " +
-                "AND Camera = TRUE AND sensoriinstallati.idSensoriInstallati = {0}";
+            const string QUERY_COUNT = "SELECT COUNT(*) FROM sensori WHERE idCodiceSensore = {0}";
+            const string QUERY_CAM ="SELECT COUNT(*) FROM Sensori, SensoriInstallati " +
+                "WHERE sensori.Camera = 1 AND idSensoriInstallati = {0} AND Sensori.idCodiceSensore = SensoriInstallati.idCodiceSensore";
 
             const string QUERY_STAZIONE =
-                "SELECT idNomeStazione FROM meteodb.sensoriinstallati.idSensoriInstallati = {0}";
+                "SELECT idNomeStazione FROM idSensoriInstallati = {0}";
 
             const string QUERY_INSERT_IMMAGINE =
-                "INSERT INTO rilevamenti(idSensoriInstallati, DataOra, Dato) " +
+                "INSERT INTO Rilevamenti(idSensoriInstallati, DataOra, Dato) " +
                 "VALUES({0},{1},{2}); " +
-                "SELECT LAST_INSERT_ID() rilevamenti;"; // Questa query ha 2 comandi, il primo inserisce il nuovo dato, il secondo ottiene l'ID del dato che ha appena inserito
+                "SELECT LAST_INSERT_ID() Rilevamenti;"; // Questa query ha 2 comandi, il primo inserisce il nuovo dato, il secondo ottiene l'ID del dato che ha appena inserito
+
+            const string QUERY_SENSORE_NORMALE = "INSERT INTO Rilevamenti(idSensoriInstallati, DataOra, Dato) " +
+                "VALUES({0},'{1} {2}','{3}')";
+
+            
 
             // Server=myServerAddress;Database=myDataBase;Uid=myUsername;Pwd=myPassword;
             MySqlConnection conn;
 
             Dictionary<string, string> databaseCredentials = new Dictionary<string, string>
             {
-                {"Server","MyServer" },
-                { "Database","myDataBase"},
-                {"Uid","myUsername"},
-                {"Pwd","myPassword"}
+                {"Server","localhost" },
+                {"Database","Meteo_5I_06"},
+                {"Uid","root"},
+                {"Pwd","burbero2023"}
             };
 
             string connectionString = $"Server={databaseCredentials["Server"]};Database={databaseCredentials["Database"]};Uid={databaseCredentials["Uid"]};Pwd={databaseCredentials["Pwd"]};";
@@ -81,7 +107,7 @@ namespace ConsoleApp_ServerMeteo
                 string ip = handler.RemoteEndPoint.ToString().Split(':')[0]; // Ip che sta effettuando la richiesta al server
                 
                 List<string> foo = new List<string>(); // Questa dovrebbe essere la lista degli ip consentiti che abbiamo sul DB
-
+                foo.Add("10.1.100.5");
 
                 bool ok = false;
                 foreach (string myIp in foo) // Controllo se l'ip che ha fatto la richiesta è negli ip consentiti
@@ -90,11 +116,11 @@ namespace ConsoleApp_ServerMeteo
                         ok = true;
                 }
 
-                if (ok)
+                if (!ok)
                 {
                     handler.Shutdown(SocketShutdown.Both);
                     handler.Close();
-                    Console.WriteLine($"\n\n CONNESSIONE RIRIUFATA IP = {ip}");
+                    Console.WriteLine($"\n\n CONNESSIONE RIFIUTATA IP = {ip}");
                     continue;
                 }
 
@@ -113,6 +139,7 @@ namespace ConsoleApp_ServerMeteo
 
                 Console.WriteLine($"Dati ricevuti:\n{strJson}");
 
+                // Convertiamo il JSON in una lista di oggetti della classe fatta prima
                 List<DatoSensore> listaSensori =
                     JsonConvert.DeserializeObject<List<DatoSensore>>(strJson);
 
@@ -138,21 +165,41 @@ namespace ConsoleApp_ServerMeteo
                                                                        // resetituisce la cella 0,0 del risultato
                                                                        // della query
                         // Nella variabile "ni" ci sarà quindi il risultato di COUNT(*)
-                        if (ni == 1) // Se è 1, allora il sensore è presente nel DB
+                        if (ni == 1) // VALIDAZIONE: Se è 1, allora il sensore è presente nel DB
                         {
+                            
+                            string dataOraServer = $"{DateTime.Now:yyyy/MM/dd HH:mm}";
+                            string dataOraClient = sensor.data + " " + sensor.ora.Remove(5);
+                            // Servirebbe anche il fuso orario, ma possiamo ricavarlo perché abbiamo le
+                            // coordinate della stazione meteo.
+
+                            if (dataOraServer != dataOraClient) 
+                            {
+                                sensor.data = dataOraServer.Split(' ')[0];
+                                sensor.ora = dataOraServer.Split(' ')[1];
+                                Console.WriteLine("\nERRORE: Data e Ora del client non corrispondono con quelle del server.");
+                            }
+
                             cmd.CommandText = string.Format(QUERY_CAM, sensor.IDSensore.ToString()); // Non è stata parametrizzata perché siamo sicuri della provenienza dei dati.
                             int nc = Convert.ToInt32(cmd.ExecuteScalar());
 
                             if (nc == 1)
                             { // Se entra qui è una CAM, devo quindi creare o ottenere la cartella per le immagini
+
+                                cmd.CommandText = string.Format(QUERY_STAZIONE, sensor.IDSensore);
                                 string codStaz = cmd.ExecuteScalar().ToString();
+
+                                // Dobbiamo creare una cartella che immagazzinerà le immagini
+                                // catturate dalla stazione in questione, per cui verifichiamo
+                                // l'esistenza di una cartella che differenzi la stazione...
                                 if (!Directory.Exists(codStaz))
                                 {
-                                    Directory.CreateDirectory(codStaz);
+                                    Directory.CreateDirectory(codStaz); // ... e se non c'è la creiamo
                                 }
 
+
                                 cmd.CommandText = string.Format(QUERY_INSERT_IMMAGINE, sensor.IDSensore, $"'{sensor.data} {sensor.ora}'", sensor.valore.ToString());
-                                ulong idIdentity = (ulong)cmd.ExecuteScalar();
+                                ulong idIdentity = (ulong)cmd.ExecuteScalar(); // Qui (a differenza di dopo) non usiamo ExecuteNonQuery perché al seconda parte della query fatta restituisce un risultato.
 
                                 int numByte = Convert.ToInt32(sensor.valore); // Nel caso di una cam sappiamo che il valore era un intero, per cui lo riconvertiamo
                                 byte[] imageBuffer = new byte[numByte];
@@ -167,16 +214,34 @@ namespace ConsoleApp_ServerMeteo
                                         handler.Receive(imageBuffer, attBytesRec, numByte - attBytesRec, SocketFlags.None);
                                 } while (attBytesRec < numByte);
 
-                                string percorso = $".\\{codStaz}\\{sensor.dataConOra()}+{idIdentity}.jpg";
-                                System.IO.File.WriteAllBytes(percorso, imageBuffer);
+                                string percorso = 
+                                    $".\\{codStaz}\\{sensor.dataConOra()}+{idIdentity}.jpg"; // Per favorire l'accesso alla cartella
+                                                                                             // anche da un umano mettiamo la data e l'ora
+                                                                                             // oltre al codice univoco dell'immagine
+                                File.WriteAllBytes(percorso, imageBuffer); // Salviamo i byte ricevuti nel file.
                                 Console.WriteLine("File salvato: "+percorso);
                             }
+                            else
+                            { // Entra qui quando è un sensore normale (no CAM)
+
+                                cmd.CommandText = string.Format(QUERY_SENSORE_NORMALE, 
+                                    sensor.IDSensore.ToString(),
+                                    sensor.data, 
+                                    sensor.ora, 
+                                    sensor.valore
+                                );
+                                cmd.ExecuteNonQuery(); // Essendo che dobbiamo fare un INSERT, che non restituisce nulla, usiamo NON QUERY.
+                            }
+                        }
+                        else
+                        {
+                            Console.WriteLine($"ERRORE: sensore {sensor.IDSensore} non ");
                         }
                     }
                 }
                 catch (Exception ex) 
                 {
-                    
+                    Console.WriteLine($"{ex}");
                 }
             }
 
