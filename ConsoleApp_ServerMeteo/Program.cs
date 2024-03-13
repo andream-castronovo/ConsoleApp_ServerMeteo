@@ -9,6 +9,7 @@ using MySql.Data.MySqlClient;
 using System.Linq;
 using System.Security.Cryptography;
 using System.ComponentModel;
+using System.Data;
 
 /*
  * Studenti: Andrea Maria Castronovo e Francesco Caravita
@@ -62,17 +63,19 @@ namespace ConsoleApp_ServerMeteo
             const string QUERY_SENSORE_NORMALE = "INSERT INTO Rilevamenti(idSensoriInstallati, DataOra, Dato) " +
                 "VALUES({0},'{1} {2}','{3}')";
 
-            
+
+            const int TIMEOUT_PERIOD = 5000;
+
 
             // Server=myServerAddress;Database=myDataBase;Uid=myUsername;Pwd=myPassword;
             MySqlConnection conn;
 
             Dictionary<string, string> databaseCredentials = new Dictionary<string, string>
             {
-                {"Server","localhost" },
-                {"Database","Meteo_5I_06"},
-                {"Uid","root"},
-                {"Pwd","burbero2023"}
+                {"Server","PC0128" },
+                {"Database","meteodb"},
+                {"Uid","ServerMeteoDBPascal"},
+                {"Pwd","MeteoPascalReading"}
             };
 
             string connectionString = $"Server={databaseCredentials["Server"]};Database={databaseCredentials["Database"]};Uid={databaseCredentials["Uid"]};Pwd={databaseCredentials["Pwd"]};";
@@ -103,11 +106,13 @@ namespace ConsoleApp_ServerMeteo
                 Console.WriteLine("\n\nAttesa connessione...");
 
                 Socket handler = listener.Accept();
+                //handler.ReceiveTimeout = 1000;//180000;
 
                 string ip = handler.RemoteEndPoint.ToString().Split(':')[0]; // Ip che sta effettuando la richiesta al server
                 
                 List<string> foo = new List<string>(); // Questa dovrebbe essere la lista degli ip consentiti che abbiamo sul DB
                 foo.Add("10.1.100.5");
+                foo.Add("10.1.0.5");
 
                 bool ok = false;
                 foreach (string myIp in foo) // Controllo se l'ip che ha fatto la richiesta è negli ip consentiti
@@ -131,11 +136,21 @@ namespace ConsoleApp_ServerMeteo
                 string strJson = "";
                 byte[] buffer = new byte[20000];
 
+                // Per timeout fatto a mane
+                DateTime dt = DateTime.Now;
+                bool timeout = false;
                 do
                 {
                     bytesRec = handler.Receive(buffer, 1, SocketFlags.Partial);
                     strJson += Encoding.ASCII.GetString(buffer, 0, bytesRec);
-                } while (!strJson.EndsWith("]"));
+                    if (DateTime.Now >= dt+TimeSpan.FromMilliseconds(TIMEOUT_PERIOD))
+                    {
+                        timeout = true;
+                    }
+                } while (!strJson.EndsWith("]") && !timeout);
+
+                if (timeout)
+                    continue;
 
                 Console.WriteLine($"Dati ricevuti:\n{strJson}");
 
