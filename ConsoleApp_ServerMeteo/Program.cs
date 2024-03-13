@@ -23,7 +23,7 @@ namespace ConsoleApp_ServerMeteo
 {
     internal class Program
     {
-        static void Masin(string[] args)
+        static void ProvaDB(string[] args) 
         {
             MySqlConnection conn;
 
@@ -45,6 +45,7 @@ namespace ConsoleApp_ServerMeteo
             cmd.Connection = conn;
             cmd.CommandText = "SELECT * FROM Sensori;";
         }
+
         static void Main(string[] args)
         {
 
@@ -150,7 +151,9 @@ namespace ConsoleApp_ServerMeteo
                 } while (!strJson.EndsWith("]") && !timeout);
 
                 if (timeout)
-                    continue;
+                {
+                    throw new TimeoutException("Impiegato troppo tempo per ricevere i dati meteo");
+                }
 
                 Console.WriteLine($"Dati ricevuti:\n{strJson}");
 
@@ -223,11 +226,25 @@ namespace ConsoleApp_ServerMeteo
                                 // L'immagine potrebbe richiedere più di una trasmissione per via della sua grandezza,
                                 // cicliamo quindi finché non abbiamo ricevuto tutto.
                                 int attBytesRec = 0;
+                                
+                                // Per timeout fatto a mane
+                                dt = DateTime.Now;
+                                timeout = false;
+
                                 do
                                 {
                                     attBytesRec += 
                                         handler.Receive(imageBuffer, attBytesRec, numByte - attBytesRec, SocketFlags.None);
-                                } while (attBytesRec < numByte);
+
+                                    if (DateTime.Now > dt + TimeSpan.FromMilliseconds(TIMEOUT_PERIOD))
+                                        timeout = true;
+
+                                } while (attBytesRec < numByte && !timeout);
+
+                                if (timeout)
+                                {
+                                    throw new TimeoutException("Impiegato troppo tempo per ricevere l'immagine");
+                                }
 
                                 string percorso = 
                                     $".\\{codStaz}\\{sensor.dataConOra()}+{idIdentity}.jpg"; // Per favorire l'accesso alla cartella
